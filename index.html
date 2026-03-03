@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zyft — Daily KPI Tracker</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #080c10;
+    --surface: #0d1318;
+    --surface2: #111820;
+    --border: rgba(255,255,255,0.07);
+    --accent: #00e5a0;
+    --accent2: #0091ff;
+    --accent3: #ff6b35;
+    --accent4: #ffd166;
+    --red: #ff4444;
+    --text: #f0f4f8;
+    --muted: #5a7080;
+    --muted2: #8aa0b0;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,229,160,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,160,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .container { position: relative; z-index: 1; max-width: 1600px; margin: 0 auto; padding: 24px 28px; }
+
+  /* LOADING */
+  #loading-screen {
+    position: fixed; inset: 0; background: var(--bg); z-index: 100;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px;
+    transition: opacity 0.5s;
+  }
+  #loading-screen.hidden { opacity: 0; pointer-events: none; }
+
+  .loading-bar-wrap { width: 200px; height: 2px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .loading-bar { height: 100%; background: var(--accent); animation: loadbar 1.5s ease infinite; }
+  @keyframes loadbar { 0% { width: 0%; margin-left: 0; } 50% { width: 60%; } 100% { width: 0%; margin-left: 100%; } }
+  .loading-text { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted); letter-spacing: 2px; }
+
+  /* ERROR BANNER */
+  #error-banner {
+    display: none; background: rgba(255,68,68,0.1); border: 1px solid rgba(255,68,68,0.3);
+    border-radius: 10px; padding: 14px 20px; margin-bottom: 20px;
+    font-family: 'DM Mono', monospace; font-size: 12px; color: #ff8888;
+  }
+
+  /* HEADER */
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 32px; padding-bottom: 24px; border-bottom: 1px solid var(--border);
+  }
+  .logo-area { display: flex; align-items: center; gap: 16px; }
+  .logo { font-size: 28px; font-weight: 800; letter-spacing: -1px; }
+  .logo span { color: var(--accent); }
+  .header-divider { width: 1px; height: 32px; background: var(--border); }
+  .header-title { font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: var(--muted2); }
+  .header-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+  .header-date { display: flex; align-items: center; gap: 10px; }
+  .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 2s ease infinite; box-shadow: 0 0 12px var(--accent); }
+  @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.6; transform: scale(0.8); } }
+  .date-label { font-family: 'DM Mono', monospace; font-size: 13px; color: var(--muted2); letter-spacing: 1px; }
+  .last-updated { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); letter-spacing: 1px; }
+  .refresh-btn {
+    background: none; border: 1px solid var(--border); color: var(--muted2); padding: 5px 12px;
+    border-radius: 6px; font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 1px;
+    cursor: pointer; transition: all 0.2s; text-transform: uppercase;
+  }
+  .refresh-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* SECTION LABELS */
+  .section-label {
+    font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 4px;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 14px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .section-label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+  /* KPI GRID */
+  .kpi-row { display: grid; grid-template-columns: repeat(8, 1fr); gap: 12px; margin-bottom: 12px; }
+
+  .kpi-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px 18px; position: relative; overflow: hidden;
+    transition: border-color 0.3s, transform 0.2s;
+    animation: fadeInUp 0.5s ease both;
+  }
+  .kpi-card:hover { border-color: rgba(0,229,160,0.25); transform: translateY(-2px); }
+  .kpi-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--accent); opacity: 0.5; }
+  .kpi-card.weekly::before { background: var(--accent2); opacity: 0.7; }
+  .kpi-card.is-negative::before { background: var(--red); }
+
+  .kpi-name { font-size: 9px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted2); margin-bottom: 12px; line-height: 1.4; }
+  .kpi-main-value { font-family: 'DM Mono', monospace; font-size: 28px; font-weight: 500; color: var(--text); letter-spacing: -1px; line-height: 1; margin-bottom: 10px; }
+  .kpi-comparison { display: flex; align-items: center; justify-content: space-between; padding-top: 8px; border-top: 1px solid var(--border); }
+  .kpi-avg { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); }
+  .kpi-avg span { color: var(--muted2); }
+  .kpi-change { font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 500; padding: 2px 7px; border-radius: 5px; }
+  .kpi-change.positive { color: var(--accent); background: rgba(0,229,160,0.1); }
+  .kpi-change.negative { color: var(--red); background: rgba(255,68,68,0.1); }
+
+  /* ROLLING CARDS */
+  .kpi-card.rolling { background: linear-gradient(135deg, var(--surface) 0%, rgba(0,145,255,0.05) 100%); }
+  .kpi-card.rolling::before { background: var(--accent2); opacity: 0.7; }
+  .kpi-week-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
+  .kpi-week-col { font-family: 'DM Mono', monospace; }
+  .kpi-week-label { font-size: 9px; letter-spacing: 1px; color: var(--muted); margin-bottom: 3px; text-transform: uppercase; }
+  .kpi-week-value { font-size: 15px; font-weight: 500; color: var(--text); letter-spacing: -0.5px; }
+  .kpi-week-value.secondary { color: var(--muted2); font-size: 13px; }
+
+  /* CHARTS */
+  .charts-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .chart-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 20px; animation: fadeInUp 0.6s ease both; transition: border-color 0.3s;
+  }
+  .chart-card:hover { border-color: rgba(0,229,160,0.15); }
+  .chart-title { font-size: 13px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--muted2); margin-bottom: 4px; }
+  .chart-subtitle { font-family: 'DM Mono', monospace; font-size: 9px; color: var(--muted); letter-spacing: 1px; }
+  .chart-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .legend-item { display: flex; align-items: center; gap: 5px; font-family: 'DM Mono', monospace; font-size: 9px; color: var(--muted); }
+  .legend-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .chart-wrap { position: relative; height: 260px; }
+  .mini-chart-wrap { position: relative; height: 200px; margin-top: 12px; }
+
+  @keyframes fadeInUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+
+  .footer {
+    margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .footer-text { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); letter-spacing: 1px; }
+
+  .kpi-section { margin-bottom: 24px; }
+  .charts-section { margin-bottom: 24px; }
+  .mt-20 { margin-top: 20px; }
+  .mt-28 { margin-top: 28px; }
+</style>
+</head>
+<body>
+
+<!-- LOADING SCREEN -->
+<div id="loading-screen">
+  <img src="data:image/png;base64,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" style="height:48px;width:auto;margin-bottom:12px;" alt="Zyft">
+  <div class="loading-bar-wrap"><div class="loading-bar"></div></div>
+  <div class="loading-text">FETCHING LIVE DATA...</div>
+</div>
+
+<div class="container">
+  <div id="error-banner"></div>
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="logo-area">
+      <div class="logo-img"><img src="data:image/png;base64,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" style="height:36px;width:auto;" alt="Zyft"></div>
+      <div class="header-divider"></div>
+      <div class="header-title">Daily KPI Tracker</div>
+    </div>
+    <div class="header-right">
+      <div class="header-date">
+        <div class="live-dot"></div>
+        <div class="date-label" id="report-date">Loading...</div>
+      </div>
+      <div class="last-updated" id="last-updated">Fetching data...</div>
+      <button class="refresh-btn" onclick="hardRefresh()">↻ Force Refresh</button>
+    </div>
+  </div>
+
+  <!-- DAILY KPIs -->
+  <div class="kpi-section">
+    <div class="section-label">Daily Performance — Today vs 4-Week Day Average</div>
+    <div class="kpi-row" id="daily-kpis"></div>
+
+    <div class="section-label mt-20">Rolling 7 Days — Current Week vs Prior Week</div>
+    <div class="kpi-row" id="rolling-kpis"></div>
+  </div>
+
+  <!-- MONTHLY CHARTS -->
+  <div class="charts-section">
+    <div class="section-label">Monthly Trends — By Platform</div>
+    <div class="charts-grid">
+      <div class="chart-card">
+        <div class="chart-title">Unique Active Users</div>
+        <div class="chart-subtitle">Monthly · Devices</div>
+        <div class="chart-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:#0091ff"></div>Chrome</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#00e5a0"></div>Safari</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ff6b35"></div>iOS</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ffd166"></div>Android</div>
+        </div>
+        <div class="chart-wrap"><canvas id="mChart1"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Match Req / Search</div>
+        <div class="chart-subtitle">Monthly · Devices</div>
+        <div class="chart-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:#0091ff"></div>Chrome</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#00e5a0"></div>Safari</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ff6b35"></div>iOS</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ffd166"></div>Android</div>
+        </div>
+        <div class="chart-wrap"><canvas id="mChart2"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Product Clicks</div>
+        <div class="chart-subtitle">Monthly · Devices</div>
+        <div class="chart-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:#0091ff"></div>Chrome</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#00e5a0"></div>Safari</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ff6b35"></div>iOS</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ffd166"></div>Android</div>
+        </div>
+        <div class="chart-wrap"><canvas id="mChart3"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Affiliate Partner Clicks</div>
+        <div class="chart-subtitle">Monthly · Devices</div>
+        <div class="chart-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:#0091ff"></div>Chrome</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#00e5a0"></div>Safari</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ff6b35"></div>iOS</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ffd166"></div>Android</div>
+        </div>
+        <div class="chart-wrap"><canvas id="mChart4"></canvas></div>
+      </div>
+    </div>
+
+    <!-- WEEKLY CHARTS -->
+    <div class="section-label mt-28">Weekly Trends — Total vs Extensions vs Apps</div>
+    <div class="charts-grid">
+      <div class="chart-card">
+        <div class="chart-title">Unique Active Users</div>
+        <div class="chart-subtitle">Weekly</div>
+        <div class="chart-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:#0091ff"></div>Extensions</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ff6b35"></div>Apps</div>
+          <div class="legend-item"><div class="legend-dot" style="background:rgba(240,244,248,0.7)"></div>Total</div>
+        </div>
+        <div class="chart-wrap"><canvas id="wChart1"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Unique MRs / Searches</div>
+        <div class="chart-subtitle">Weekly</div>
+        <div class="chart-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:#0091ff"></div>Extensions</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ff6b35"></div>Apps</div>
+          <div class="legend-item"><div class="legend-dot" style="background:rgba(240,244,248,0.7)"></div>Total</div>
+        </div>
+        <div class="chart-wrap"><canvas id="wChart2"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Product Clicks</div>
+        <div class="chart-subtitle">Weekly</div>
+        <div class="chart-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:#0091ff"></div>Extensions</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ff6b35"></div>Apps</div>
+          <div class="legend-item"><div class="legend-dot" style="background:rgba(240,244,248,0.7)"></div>Total</div>
+        </div>
+        <div class="chart-wrap"><canvas id="wChart3"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Affiliate Partner Clicks</div>
+        <div class="chart-subtitle">Weekly</div>
+        <div class="chart-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:#0091ff"></div>Extensions</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ff6b35"></div>Apps</div>
+          <div class="legend-item"><div class="legend-dot" style="background:rgba(240,244,248,0.7)"></div>Total</div>
+        </div>
+        <div class="chart-wrap"><canvas id="wChart4"></canvas></div>
+      </div>
+    </div>
+
+    <!-- FURTHER ANALYTICS -->
+    <div class="section-label mt-28">Further Analytics</div>
+    <div class="charts-grid">
+
+      <div class="chart-card">
+        <div class="chart-title">Weekly Open Rate</div>
+        <div class="chart-subtitle">Chrome · Safari · Total</div>
+        <div class="chart-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:#0091ff"></div>Chrome</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#00e5a0"></div>Safari</div>
+          <div class="legend-item"><div class="legend-dot" style="background:rgba(240,244,248,0.7)"></div>Total</div>
+        </div>
+        <div class="chart-wrap"><canvas id="aChart1"></canvas></div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-title">MR / Search Per Active User</div>
+        <div class="chart-subtitle">Extensions · Apps · Total</div>
+        <div class="chart-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:#0091ff"></div>Extensions</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ff6b35"></div>Apps</div>
+          <div class="legend-item"><div class="legend-dot" style="background:rgba(240,244,248,0.7)"></div>Total</div>
+        </div>
+        <div class="chart-wrap"><canvas id="aChart2"></canvas></div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-title">Product Clicks Per Active User</div>
+        <div class="chart-subtitle">Extensions · Apps · Total</div>
+        <div class="chart-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:#0091ff"></div>Extensions</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ff6b35"></div>Apps</div>
+          <div class="legend-item"><div class="legend-dot" style="background:rgba(240,244,248,0.7)"></div>Total</div>
+        </div>
+        <div class="chart-wrap"><canvas id="aChart3"></canvas></div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-title">Weekly Source of Clicks</div>
+        <div class="chart-subtitle">MR/Search · Direct to Retailer</div>
+        <div class="chart-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:#00e5a0"></div>MR/Search</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ffd166"></div>Direct to Retailer</div>
+        </div>
+        <div class="chart-wrap"><canvas id="aChart4"></canvas></div>
+      </div>
+
+    </div>
+    <div class="charts-grid" style="margin-top:14px">
+
+      <div class="chart-card">
+        <div class="chart-title">Affiliate Partner Click Share</div>
+        <div class="chart-subtitle">MR/Search · Direct to Retailer</div>
+        <div class="chart-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:#00e5a0"></div>MR/Search</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ffd166"></div>Direct to Retailer</div>
+        </div>
+        <div class="chart-wrap"><canvas id="aChart5"></canvas></div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-title">Median Product $ Value</div>
+        <div class="chart-subtitle">Monthly · Extension Chrome · Safari · Weighted Avg</div>
+        <div class="chart-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:#0091ff"></div>Ext - Chrome</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#00e5a0"></div>Ext - Safari</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ffd166"></div>Weighted Avg</div>
+        </div>
+        <div class="chart-wrap"><canvas id="aChart6"></canvas></div>
+      </div>
+
+      <div class="chart-card" style="visibility:hidden"></div>
+      <div class="chart-card" style="visibility:hidden"></div>
+
+    </div>
+  </div>
+
+  <div class="footer">
+    <div class="footer-text">ZYFT CORE METRICS · LIVE PERFORMANCE DOC</div>
+    <div class="footer-text" id="footer-ts"></div>
+  </div>
+</div>
+
+<script>
+// ─── CONFIG ──────────────────────────────────────────────────────────────────
+// Google Apps Script URL — serves live data directly, no caching, no CORS issues
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzfL05G8yv4qHTueLbbVb3jXofxo11jZKnW5_Mj1i2G9iWVjM86w2iVsx1vJh4ZN8cCnw/exec';
+const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
+
+async function fetchCSV() {
+  // Google Apps Script redirects — must follow redirects explicitly
+  const r = await fetch(APPS_SCRIPT_URL, {
+    redirect: 'follow',
+    cache: 'no-store',
+    signal: AbortSignal.timeout(15000)
+  });
+  if (!r.ok) throw new Error('Apps Script returned HTTP ' + r.status);
+  const text = await r.text();
+  if (!text || text.length < 100) throw new Error('Apps Script returned empty data');
+  return text;
+}
+
+// Chart.js global defaults
+Chart.defaults.color = '#5a7080';
+Chart.defaults.font.family = "'DM Mono', monospace";
+Chart.defaults.font.size = 11;
+
+let charts = {};
+
+// ─── CSV PARSER ──────────────────────────────────────────────────────────────
+function parseCSV(text) {
+  const rows = [];
+  const lines = text.split('\n');
+  for (const line of lines) {
+    const row = [];
+    let inQuote = false, cell = '';
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') { inQuote = !inQuote; }
+      else if (ch === ',' && !inQuote) { row.push(cell.trim()); cell = ''; }
+      else { cell += ch; }
+    }
+    row.push(cell.trim());
+    rows.push(row);
+  }
+  return rows;
+}
+
+// Convert "A1" notation to [row, col] (0-indexed)
+function cellRef(ref) {
+  const match = ref.match(/^([A-Z]+)(\d+)$/);
+  const col = match[1].split('').reduce((acc, c) => acc * 26 + c.charCodeAt(0) - 64, 0) - 1;
+  const row = parseInt(match[2]) - 1;
+  return [row, col];
+}
+
+function getCell(grid, ref) {
+  const [r, c] = cellRef(ref);
+  return (grid[r] && grid[r][c] !== undefined) ? grid[r][c] : '';
+}
+
+function getRange(grid, rangeRef) {
+  // e.g. "A37:N41"
+  const [start, end] = rangeRef.split(':');
+  const [r1, c1] = cellRef(start);
+  const [r2, c2] = cellRef(end);
+  const result = [];
+  for (let r = r1; r <= r2; r++) {
+    const row = [];
+    for (let c = c1; c <= c2; c++) {
+      row.push((grid[r] && grid[r][c] !== undefined) ? grid[r][c] : '');
+    }
+    result.push(row);
+  }
+  return result;
+}
+
+// ─── FORMATTING ──────────────────────────────────────────────────────────────
+function parseNum(val) {
+  if (!val) return 0;
+  const s = String(val).trim();
+  if (!s) return 0;
+  if (s.endsWith('%')) return parseFloat(s.replace('%','')) || 0;
+  const clean = s.replace(/[$,\s()]/g, '');
+  return parseFloat(clean) || 0;
+}
+
+function formatVal(val, name) {
+  let n = parseNum(val);
+  const nameLower = (name || '').toLowerCase();
+  if (nameLower.includes('revenue') || nameLower.includes('transaction') || nameLower.includes('value')) {
+    return '$' + Math.round(n).toLocaleString('en-US');
+  }
+  if (nameLower.includes('share')) {
+    // Raw decimal like 0.407 → multiply to get percentage
+    if (n > 0 && n < 1) n = n * 100;
+    return n.toFixed(2) + '%';
+  }
+  return Math.round(n).toLocaleString('en-US');
+}
+
+function formatChange(val) {
+  const raw = String(val).trim();
+  if (!raw) return { text: '—', cls: 'positive' };
+  // Handle pre-formatted strings like "(2.42)%" or "+0.45%"
+  if (raw.startsWith('(') && raw.endsWith(')%')) {
+    return { text: '▼ ' + raw.replace('(','').replace(')%','') + '%', cls: 'negative' };
+  }
+  if (raw.startsWith('(') || (raw.startsWith('-') && raw.endsWith('%'))) {
+    return { text: '▼ ' + raw.replace(/[()%+-]/g,'') + '%', cls: 'negative' };
+  }
+  if (raw.endsWith('%')) {
+    return { text: '▲ ' + raw.replace('+',''), cls: 'positive' };
+  }
+  // Raw decimal like -0.0096 or 0.0568 from Apps Script
+  const n = parseFloat(raw);
+  if (!isNaN(n)) {
+    const pct = (n * 100).toFixed(2) + '%';
+    return n >= 0
+      ? { text: '▲ ' + pct, cls: 'positive' }
+      : { text: '▼ ' + pct.replace('-',''), cls: 'negative' };
+  }
+  return { text: raw, cls: 'positive' };
+}
+
+// ─── RENDER KPI CARDS ────────────────────────────────────────────────────────
+const DAILY_METRICS = [
+  { name: 'Unique Active Users',       today: 'B12', avg: 'C12', chg: 'D12' },
+  { name: 'Unique MRs / Searches',     today: 'B13', avg: 'C13', chg: 'D13' },
+  { name: 'Opens',                     today: 'B14', avg: 'C14', chg: 'D14' },
+  { name: 'Total Product Clicks',      today: 'B15', avg: 'C15', chg: 'D15' },
+  { name: 'Affiliate Partner Clicks',  today: 'B16', avg: 'C16', chg: 'D16' },
+  { name: 'Affiliate Partner Share',   today: 'B17', avg: 'C17', chg: 'D17' },
+  { name: 'Transaction Value (est)',   today: 'B18', avg: 'C18', chg: 'D18' },
+  { name: 'Affiliate Revenue (est)',   today: 'B19', avg: 'C19', chg: 'D19' },
+];
+
+const ROLLING_METRICS = [
+  { name: 'Unique Active Users',       cur: 'B24', prior: 'C24', chg: 'D24' },
+  { name: 'Unique MRs / Searches',     cur: 'B25', prior: 'C25', chg: 'D25' },
+  { name: 'Opens',                     cur: 'B26', prior: 'C26', chg: 'D26' },
+  { name: 'Total Product Clicks',      cur: 'B27', prior: 'C27', chg: 'D27' },
+  { name: 'Affiliate Partner Clicks',  cur: 'B28', prior: 'C28', chg: 'D28' },
+  { name: 'Affiliate Partner Share',   cur: 'B29', prior: 'C29', chg: 'D29' },
+  { name: 'Transaction Value (est)',   cur: 'B30', prior: 'C30', chg: 'D30' },
+  { name: 'Affiliate Revenue (est)',   cur: 'B31', prior: 'C31', chg: 'D31' },
+];
+
+function renderDailyKPIs(grid) {
+  const container = document.getElementById('daily-kpis');
+  container.innerHTML = '';
+  DAILY_METRICS.forEach(m => {
+    const today = getCell(grid, m.today);
+    const avg   = getCell(grid, m.avg);
+    const chg   = getCell(grid, m.chg);
+    const { text: chgText, cls: chgCls } = formatChange(chg);
+    const isNeg = chgCls === 'negative';
+    container.innerHTML += `
+      <div class="kpi-card ${isNeg ? 'is-negative' : ''}">
+        <div class="kpi-name">${m.name}</div>
+        <div class="kpi-main-value">${formatVal(today, m.name)}</div>
+        <div class="kpi-comparison">
+          <div class="kpi-avg">Avg <span>${formatVal(avg, m.name)}</span></div>
+          <div class="kpi-change ${chgCls}">${chgText}</div>
+        </div>
+      </div>`;
+  });
+}
+
+function renderRollingKPIs(grid) {
+  const container = document.getElementById('rolling-kpis');
+  const curPeriod  = formatLabel(getCell(grid, 'B23')) || '1 Mar';
+  const priorPeriod = formatLabel(getCell(grid, 'C23')) || '22 Feb';
+  container.innerHTML = '';
+  ROLLING_METRICS.forEach(m => {
+    const cur   = getCell(grid, m.cur);
+    const prior = getCell(grid, m.prior);
+    const chg   = getCell(grid, m.chg);
+    const { text: chgText, cls: chgCls } = formatChange(chg);
+    container.innerHTML += `
+      <div class="kpi-card rolling">
+        <div class="kpi-name">${m.name}</div>
+        <div class="kpi-week-compare">
+          <div class="kpi-week-col">
+            <div class="kpi-week-label">${curPeriod || 'Current'}</div>
+            <div class="kpi-week-value">${formatVal(cur, m.name)}</div>
+          </div>
+          <div class="kpi-week-col">
+            <div class="kpi-week-label">${priorPeriod || 'Prior'}</div>
+            <div class="kpi-week-value secondary">${formatVal(prior, m.name)}</div>
+          </div>
+        </div>
+        <div class="kpi-comparison" style="padding-top:8px;border-top:1px solid var(--border)">
+          <div class="kpi-avg" style="font-size:10px">Week-on-week</div>
+          <div class="kpi-change ${chgCls}">${chgText}</div>
+        </div>
+      </div>`;
+  });
+}
+
+// ─── CHART HELPERS ───────────────────────────────────────────────────────────
+const COLORS = {
+  chrome:  '#0091ff',
+  safari:  '#00e5a0',
+  ios:     '#ff6b35',
+  android: '#ffd166',
+  total:   'rgba(240,244,248,0.7)',
+  ext:     '#0091ff',
+  apps:    '#ff6b35',
+  accent:  '#00e5a0',
+  accent3: '#ff6b35',
+  accent4: '#ffd166',
+};
+
+const barOpts = (stacked=true) => ({
+  responsive: true, maintainAspectRatio: false,
+  plugins: { legend: { display: false }, tooltip: { mode: 'index' } },
+  scales: {
+    x: { stacked, grid: { color: 'rgba(255,255,255,0.04)' }, border: { color: 'rgba(255,255,255,0.08)' }, ticks: { font: { size: 10 } } },
+    y: { stacked, grid: { color: 'rgba(255,255,255,0.04)' }, border: { color: 'rgba(255,255,255,0.08)' }, ticks: { font: { size: 10 }, callback: v => v >= 1e6 ? (v/1e6).toFixed(1)+'M' : v >= 1000 ? (v/1000).toFixed(0)+'k' : v } }
+  }
+});
+
+const lineOpts = () => ({
+  responsive: true, maintainAspectRatio: false,
+  plugins: { legend: { display: false } },
+  elements: { point: { radius: 0, hoverRadius: 4 }, line: { tension: 0.35 } },
+  scales: {
+    x: { grid: { color: 'rgba(255,255,255,0.04)' }, border: { color: 'rgba(255,255,255,0.08)' }, ticks: { font: { size: 10 }, maxTicksLimit: 10 } },
+    y: { grid: { color: 'rgba(255,255,255,0.04)' }, border: { color: 'rgba(255,255,255,0.08)' }, ticks: { font: { size: 10 }, callback: v => v >= 1e6 ? (v/1e6).toFixed(1)+'M' : v >= 1000 ? (v/1000).toFixed(0)+'k' : v } }
+  }
+});
+
+function makeOrUpdate(id, type, data, options) {
+  if (charts[id]) { charts[id].destroy(); }
+  const ctx = document.getElementById(id).getContext('2d');
+  charts[id] = new Chart(ctx, { type, data, options });
+}
+
+// Parse a range into numeric rows, skip header row (row 0)
+// Colour lookup by series name from the sheet
+function seriesColor(name) {
+  const n = (name || '').toLowerCase().trim();
+  if (n === 'android')   return COLORS.android;
+  if (n === 'chrome' || n === 'extension - chrome') return COLORS.chrome;
+  if (n === 'safari' || n === 'extension - safari') return COLORS.safari;
+  if (n === 'ios')       return COLORS.ios;
+  if (n === 'extensions') return COLORS.ext;
+  if (n === 'apps')      return COLORS.apps;
+  if (n === 'total')     return COLORS.total;
+  if (n === 'mr/search') return COLORS.accent;
+  if (n === 'direct to retailer') return COLORS.accent4;
+  if (n.includes('weighted')) return COLORS.accent4;
+  // fallback palette
+  const palette = [COLORS.chrome, COLORS.safari, COLORS.ios, COLORS.android];
+  return palette[0];
+}
+
+// Sheet data is newest-first (left), so reverse to get chronological order
+function formatLabel(s) {
+  // Convert full JS date strings to short labels
+  if (!s || !s.includes('GMT')) return s;
+  try {
+    const d = new Date(s);
+    if (isNaN(d)) return s;
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const day = d.getDate();
+    const mon = months[d.getMonth()];
+    const yr = String(d.getFullYear()).slice(2);
+    return day === 1 ? `${mon}-${yr}` : `${day}-${mon}-${yr}`;
+  } catch(e) { return s; }
+}
+
+function extractRange(rangeData) {
+  const labels = rangeData[0].slice(1)
+    .map(v => formatLabel((v || '').trim()))
+    .filter(v => v !== '')
+    .reverse();
+  const dataRows = rangeData.slice(1).filter(r => r[0] && r[0].trim());
+  const len = labels.length;
+  const rows = dataRows.map(row => {
+    const vals = row.slice(1).filter((_, i) => i < len + 10);
+    return { name: row[0].trim(), data: vals.slice(0, len).map(v => parseNum(v)).reverse() };
+  });
+  return { labels, rows };
+}
+
+function buildMonthlyStackedBar(id, rangeData) {
+  const { labels, rows } = extractRange(rangeData);
+  makeOrUpdate(id, 'bar', {
+    labels,
+    datasets: rows.map(r => ({
+      label: r.name,
+      data: r.data,
+      backgroundColor: seriesColor(r.name),
+      stack: 'a',
+      borderRadius: 2,
+    }))
+  }, barOpts(true));
+}
+
+function buildWeeklyLine(id, rangeData) {
+  const { labels, rows } = extractRange(rangeData);
+  // Reorder so Total is drawn last (on top): sort Extensions, Apps, Total
+  const order = ['extensions', 'apps', 'total', 'mr/search', 'direct to retailer'];
+  const sorted = [...rows].sort((a, b) => {
+    const ai = order.indexOf(a.name.toLowerCase()), bi = order.indexOf(b.name.toLowerCase());
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+  });
+  makeOrUpdate(id, 'line', {
+    labels,
+    datasets: sorted.map((r, i) => ({
+      label: r.name,
+      data: r.data,
+      borderColor: seriesColor(r.name),
+      borderWidth: r.name.toLowerCase() === 'total' ? 2 : 1.5,
+      borderDash: r.name.toLowerCase() === 'total' ? [4, 3] : [],
+      fill: false,
+      pointRadius: 0, pointHoverRadius: 4,
+    }))
+  }, lineOpts());
+}
+
+function buildFurtherLine(id, rangeData) {
+  const { labels, rows } = extractRange(rangeData);
+  const isPercent = rows.some(r => r.data.some(v => v > 0 && v < 1));
+  makeOrUpdate(id, 'line', {
+    labels,
+    datasets: rows.map((r, i) => ({
+      label: r.name,
+      data: r.data,
+      borderColor: seriesColor(r.name),
+      borderWidth: 1.5,
+      borderDash: r.name.toLowerCase() === 'total' ? [4, 3] : [],
+      fill: i === 0,
+      backgroundColor: i === 0 ? 'rgba(0,229,160,0.06)' : 'transparent',
+      pointRadius: 0, pointHoverRadius: 4,
+    }))
+  }, {
+    ...lineOpts(),
+    scales: {
+      ...lineOpts().scales,
+      y: {
+        ...lineOpts().scales.y,
+        ticks: {
+          font: { size: 9 },
+          callback: v => isPercent ? (v * 100).toFixed(1) + '%' : parseFloat(v).toFixed(2)
+        }
+      }
+    }
+  });
+}
+
+// ─── DYNAMIC ROW FINDER ──────────────────────────────────────────────────────
+// Find the row index where a cell in column A matches the given label
+function findRow(grid, label) {
+  const lbl = label.toLowerCase().trim();
+  for (let i = 0; i < grid.length; i++) {
+    if (grid[i][0] && grid[i][0].toString().toLowerCase().trim() === lbl) return i;
+  }
+  return -1;
+}
+
+// Get a block of rows starting from a label row, for N rows, up to maxCols columns
+function getBlockByLabel(grid, label, numRows, maxCols) {
+  const startRow = findRow(grid, label);
+  if (startRow === -1) { console.warn('Label not found:', label); return []; }
+  const result = [];
+  for (let r = startRow; r < startRow + numRows && r < grid.length; r++) {
+    result.push(grid[r].slice(0, maxCols));
+  }
+  return result;
+}
+
+// ─── MAIN DATA LOAD ──────────────────────────────────────────────────────────
+async function loadData() {
+  document.getElementById('last-updated').textContent = 'Refreshing...';
+  document.getElementById('error-banner').style.display = 'none';
+
+  try {
+    const text = await fetchCSV();
+    const grid = parseCSV(text);
+
+    // Report date — handle both short "Feb-26" and full JS date strings
+    let dateVal = getCell(grid, 'B8');
+    if (dateVal && dateVal.includes('GMT')) {
+      const d = new Date(dateVal);
+      if (!isNaN(d)) {
+        dateVal = d.toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+      }
+    }
+    document.getElementById('report-date').textContent = dateVal || 'Daily KPI Tracker';
+
+
+    renderDailyKPIs(grid);
+    renderRollingKPIs(grid);
+
+    // Monthly charts — found by label, 5 rows each (1 header + 4 data)
+    buildMonthlyStackedBar('mChart1', getBlockByLabel(grid, 'Monthly Unique Active Users  (Devices)', 5, 15));
+    buildMonthlyStackedBar('mChart2', getBlockByLabel(grid, 'Monthly Unique MR / Search', 5, 15));
+    buildMonthlyStackedBar('mChart3', getBlockByLabel(grid, 'Monthly Product Clicks', 5, 15));
+    buildMonthlyStackedBar('mChart4', getBlockByLabel(grid, 'Monthly Affiliate Partner Clicks', 5, 15));
+
+    // Weekly charts — found by label, 4 rows each (1 header + 3 data)
+    buildWeeklyLine('wChart1', getBlockByLabel(grid, 'Weekly Unique Active Users  (Devices)', 4, 62));
+    buildWeeklyLine('wChart2', getBlockByLabel(grid, 'Weekly Unique MR / Search', 4, 62));
+    buildWeeklyLine('wChart3', getBlockByLabel(grid, 'Weekly Product Clicks ', 4, 62));
+    buildWeeklyLine('wChart4', getBlockByLabel(grid, 'Weekly Affiliate Partner Clicks', 4, 62));
+
+    // Further Analytics — found by label
+    buildPercentLine('aChart1',   getBlockByLabel(grid, 'Weekly Open Rate', 4, 62));
+    buildFurtherLine('aChart2',   getBlockByLabel(grid, 'Weekly MR/Search Per Active User', 4, 62));
+    buildWeeklyLine('aChart3',    getBlockByLabel(grid, 'Weekly Product Click Per Active User', 4, 62));
+    buildDualAxisLine('aChart4',  getBlockByLabel(grid, 'Weekly Source of Clicks', 3, 62));
+    buildDualAxisLine('aChart5',  getBlockByLabel(grid, 'Weekly Affiliate Partner Click Share', 3, 62));
+    buildMonthlyValueLine('aChart6', getBlockByLabel(grid, 'Median Product $ Value - Monthly Clicks', 4, 15));
+
+    const now = new Date();
+    const ts = now.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
+    document.getElementById('last-updated').textContent = `Last updated: ${ts}`;
+    document.getElementById('footer-ts').textContent = `Data as of ${now.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })} · All values estimated`;
+
+  } catch (err) {
+    console.error(err);
+    const banner = document.getElementById('error-banner');
+    banner.style.display = 'block';
+    banner.textContent = `⚠ Could not load live data: ${err.message}. Check that the sheet is published to web and the URL is correct. The dashboard will retry in 5 minutes.`;
+    document.getElementById('last-updated').textContent = 'Data load failed — retrying...';
+  }
+
+  // Hide loading screen
+  document.getElementById('loading-screen').classList.add('hidden');
+}
+
+// ─── PERCENT LINE CHART (values stored as "3.85%" strings) ─────────────────
+function buildPercentLine(id, rangeData) {
+  const { labels, rows } = extractRange(rangeData);
+  makeOrUpdate(id, 'line', {
+    labels,
+    datasets: rows.map((r, i) => ({
+      label: r.name,
+      data: r.data,
+      borderColor: seriesColor(r.name),
+      borderWidth: r.name.toLowerCase() === 'total' ? 2 : 1.5,
+      borderDash: r.name.toLowerCase() === 'total' ? [4,3] : [],
+      fill: false,
+      pointRadius: 0, pointHoverRadius: 4,
+    }))
+  }, {
+    ...lineOpts(),
+    scales: {
+      ...lineOpts().scales,
+      y: {
+        ...lineOpts().scales.y,
+        ticks: { font: { size: 10 }, callback: v => v.toFixed(1) + '%' }
+      }
+    }
+  });
+}
+
+// ─── DUAL Y-AXIS LINE (when two series have very different scales) ─────────────
+function buildDualAxisLine(id, rangeData) {
+  const { labels, rows } = extractRange(rangeData);
+  // Determine if values are percentages (0-100 range)
+  const isPercent = rows.length > 0 && rows[0].data.some(v => v > 0 && v <= 100 && String(v).includes('.'));
+  const fmtY = v => isPercent ? v.toFixed(1) + '%' : (v >= 1000 ? (v/1000).toFixed(0) + 'k' : v);
+  const datasets = rows.map((r, i) => ({
+    label: r.name,
+    data: r.data,
+    borderColor: seriesColor(r.name),
+    backgroundColor: 'transparent',
+    borderWidth: 2,
+    borderDash: i === 1 ? [6, 3] : [],
+    fill: false,
+    pointRadius: 0,
+    pointHoverRadius: 4,
+    tension: 0.35,
+  }));
+  makeOrUpdate(id, 'line', { labels, datasets }, {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { display: false }, tooltip: { mode: 'index' } },
+    scales: {
+      x: {
+        grid: { color: 'rgba(255,255,255,0.04)' },
+        border: { color: 'rgba(255,255,255,0.08)' },
+        ticks: { font: { size: 10 }, maxTicksLimit: 10 }
+      },
+      y: {
+        grid: { color: 'rgba(255,255,255,0.04)' },
+        border: { color: 'rgba(255,255,255,0.08)' },
+        ticks: { font: { size: 10 }, callback: v => fmtY(v) }
+      }
+    }
+  });
+}
+
+// ─── MONTHLY VALUE LINE ($ values, monthly cadence) ─────────────────────────
+function buildMonthlyValueLine(id, rangeData) {
+  const { labels, rows } = extractRange(rangeData);
+  makeOrUpdate(id, 'line', {
+    labels,
+    datasets: rows.map((r, i) => ({
+      label: r.name,
+      data: r.data,
+      borderColor: seriesColor(r.name),
+      borderWidth: 1.5,
+      borderDash: r.name.toLowerCase().includes('weighted') ? [4,3] : [],
+      fill: false,
+      pointRadius: 2, pointHoverRadius: 5,
+    }))
+  }, {
+    ...lineOpts(),
+    scales: {
+      ...lineOpts().scales,
+      y: {
+        ...lineOpts().scales.y,
+        ticks: { font: { size: 10 }, callback: v => '$' + v.toFixed(0) }
+      }
+    }
+  });
+}
+
+// Track which proxy worked
+let lastProxyUsed = 'none';
+
+function hardRefresh() {
+  // Clear any cached state and force reload
+  Object.values(charts).forEach(c => c.destroy());
+  charts = {};
+  loadData();
+}
+
+// Initial load + auto-refresh
+loadData();
+setInterval(loadData, REFRESH_INTERVAL);
+</script>
+</body>
+</html>
