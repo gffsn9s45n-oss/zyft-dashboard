@@ -107,7 +107,7 @@
   .kpi-card.weekly::before { background: var(--accent2); opacity: 0.7; }
   .kpi-card.is-negative::before { background: var(--red); }
 
-  .kpi-name { font-size: 9px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted2); margin-bottom: 12px; line-height: 1.4; }
+  .kpi-name { font-size: 9px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted2); margin-bottom: 12px; line-height: 1.4; min-height: 2.8em; display: flex; align-items: flex-start; }
   .kpi-main-value { font-family: 'DM Mono', monospace; font-size: 28px; font-weight: 500; color: var(--text); letter-spacing: -1px; line-height: 1; margin-bottom: 10px; }
   .kpi-comparison { display: flex; align-items: center; justify-content: space-between; padding-top: 8px; border-top: 1px solid var(--border); }
   .kpi-avg { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); }
@@ -118,7 +118,6 @@
 
   /* ROLLING CARDS */
   .kpi-card.rolling { background: linear-gradient(135deg, var(--surface) 0%, rgba(0,145,255,0.05) 100%); }
-  .kpi-card.rolling::before { background: var(--accent2); opacity: 0.7; }
   .kpi-week-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
   .kpi-week-col { font-family: 'DM Mono', monospace; }
   .kpi-week-label { font-size: 9px; letter-spacing: 1px; color: var(--muted); margin-bottom: 3px; text-transform: uppercase; }
@@ -293,7 +292,7 @@
 
       <div class="chart-card">
         <div class="chart-title">Weekly Open Rate</div>
-        <div class="chart-subtitle">Chrome · Safari · Total</div>
+        <div class="chart-subtitle">Weekly</div>
         <div class="chart-legend">
           <div class="legend-item"><div class="legend-dot" style="background:#0091ff"></div>Chrome</div>
           <div class="legend-item"><div class="legend-dot" style="background:#00e5a0"></div>Safari</div>
@@ -304,7 +303,7 @@
 
       <div class="chart-card">
         <div class="chart-title">MR / Search Per Active User</div>
-        <div class="chart-subtitle">Extensions · Apps · Total</div>
+        <div class="chart-subtitle">Weekly</div>
         <div class="chart-legend">
           <div class="legend-item"><div class="legend-dot" style="background:#0091ff"></div>Extensions</div>
           <div class="legend-item"><div class="legend-dot" style="background:#ff6b35"></div>Apps</div>
@@ -315,7 +314,7 @@
 
       <div class="chart-card">
         <div class="chart-title">Product Clicks Per Active User</div>
-        <div class="chart-subtitle">Extensions · Apps · Total</div>
+        <div class="chart-subtitle">Weekly</div>
         <div class="chart-legend">
           <div class="legend-item"><div class="legend-dot" style="background:#0091ff"></div>Extensions</div>
           <div class="legend-item"><div class="legend-dot" style="background:#ff6b35"></div>Apps</div>
@@ -326,7 +325,7 @@
 
       <div class="chart-card">
         <div class="chart-title">Weekly Source of Clicks</div>
-        <div class="chart-subtitle">MR/Search · Direct to Retailer</div>
+        <div class="chart-subtitle">Weekly</div>
         <div class="chart-legend">
           <div class="legend-item"><div class="legend-dot" style="background:#00e5a0"></div>MR/Search</div>
           <div class="legend-item"><div class="legend-dot" style="background:#ffd166"></div>Direct to Retailer</div>
@@ -339,7 +338,7 @@
 
       <div class="chart-card">
         <div class="chart-title">Affiliate Partner Click Share</div>
-        <div class="chart-subtitle">MR/Search · Direct to Retailer</div>
+        <div class="chart-subtitle">Weekly</div>
         <div class="chart-legend">
           <div class="legend-item"><div class="legend-dot" style="background:#00e5a0"></div>MR/Search</div>
           <div class="legend-item"><div class="legend-dot" style="background:#ffd166"></div>Direct to Retailer</div>
@@ -349,7 +348,7 @@
 
       <div class="chart-card">
         <div class="chart-title">Median Product $ Value</div>
-        <div class="chart-subtitle">Monthly · Extension Chrome · Safari · Weighted Avg</div>
+        <div class="chart-subtitle">Monthly</div>
         <div class="chart-legend">
           <div class="legend-item"><div class="legend-dot" style="background:#0091ff"></div>Ext - Chrome</div>
           <div class="legend-item"><div class="legend-dot" style="background:#00e5a0"></div>Ext - Safari</div>
@@ -547,7 +546,7 @@ function renderRollingKPIs(grid) {
     const chg   = getCell(grid, m.chg);
     const { text: chgText, cls: chgCls } = formatChange(chg);
     container.innerHTML += `
-      <div class="kpi-card rolling">
+      <div class="kpi-card rolling ${chgCls === 'negative' ? 'is-negative' : ''}">
         <div class="kpi-name">${m.name}</div>
         <div class="kpi-week-compare">
           <div class="kpi-week-col">
@@ -589,6 +588,41 @@ const barOpts = (stacked=true) => ({
     y: { stacked, grid: { color: 'rgba(255,255,255,0.04)' }, border: { color: 'rgba(255,255,255,0.08)' }, ticks: { font: { size: 10 }, callback: v => v >= 1e6 ? (v/1e6).toFixed(1)+'M' : v >= 1000 ? (v/1000).toFixed(0)+'k' : v } }
   }
 });
+
+// For weekly charts: given the full labels array, return a Set of label indices
+// that represent the first week of each calendar month (used for x-axis ticks)
+function monthlyTickIndices(labels) {
+  const seen = new Set();
+  const indices = new Set();
+  labels.forEach((lbl, i) => {
+    // Labels are like "23-Feb-26" or "Feb-26"
+    const parts = lbl.split('-');
+    const monthYear = parts.length === 3 ? parts[1] + '-' + parts[2] : parts[0] + '-' + parts[1];
+    if (!seen.has(monthYear)) {
+      seen.add(monthYear);
+      indices.add(i);
+    }
+  });
+  return indices;
+}
+
+// Build x-axis tick config that only shows labels at month boundaries
+function monthlyXTicks(labels) {
+  const indices = monthlyTickIndices(labels);
+  return {
+    font: { size: 10 },
+    callback: function(val, i) {
+      if (!indices.has(i)) return '';
+      // Show just "Feb-26" style — strip the day if present
+      const lbl = labels[i];
+      const parts = lbl.split('-');
+      return parts.length === 3 ? parts[1] + '-' + parts[2] : lbl;
+    },
+    maxRotation: 45,
+    minRotation: 45,
+    autoSkip: false,
+  };
+}
 
 const lineOpts = () => ({
   responsive: true, maintainAspectRatio: false,
@@ -687,7 +721,13 @@ function buildWeeklyLine(id, rangeData) {
       fill: false,
       pointRadius: 0, pointHoverRadius: 4,
     }))
-  }, lineOpts());
+  }, {
+    ...lineOpts(),
+    scales: {
+      ...lineOpts().scales,
+      x: { ...lineOpts().scales.x, ticks: monthlyXTicks(labels) },
+    }
+  });
 }
 
 function buildFurtherLine(id, rangeData) {
@@ -709,6 +749,7 @@ function buildFurtherLine(id, rangeData) {
     ...lineOpts(),
     scales: {
       ...lineOpts().scales,
+      x: { ...lineOpts().scales.x, ticks: monthlyXTicks(labels) },
       y: {
         ...lineOpts().scales.y,
         ticks: {
@@ -819,6 +860,7 @@ function buildPercentLine(id, rangeData) {
     ...lineOpts(),
     scales: {
       ...lineOpts().scales,
+      x: { ...lineOpts().scales.x, ticks: monthlyXTicks(labels) },
       y: {
         ...lineOpts().scales.y,
         ticks: { font: { size: 10 }, callback: v => v.toFixed(1) + '%' }
@@ -853,7 +895,7 @@ function buildDualAxisLine(id, rangeData) {
       x: {
         grid: { color: 'rgba(255,255,255,0.04)' },
         border: { color: 'rgba(255,255,255,0.08)' },
-        ticks: { font: { size: 10 }, maxTicksLimit: 10 }
+        ticks: monthlyXTicks(labels),
       },
       y: {
         grid: { color: 'rgba(255,255,255,0.04)' },
