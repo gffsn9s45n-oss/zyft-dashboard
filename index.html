@@ -17,6 +17,7 @@
     --accent3: #ff6b35;
     --accent4: #ffd166;
     --red: #ff4444;
+    --orange: #ff8c00;
     --text: #f0f4f8;
     --muted: #5a7080;
     --muted2: #8aa0b0;
@@ -84,6 +85,12 @@
     cursor: pointer; transition: all 0.2s; text-transform: uppercase;
   }
   .refresh-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .commentary-btn {
+    background: rgba(0,229,160,0.08); border: 1px solid rgba(0,229,160,0.3); color: var(--accent);
+    padding: 5px 12px; border-radius: 6px; font-family: 'DM Mono', monospace; font-size: 10px;
+    letter-spacing: 1px; cursor: pointer; transition: all 0.2s; text-transform: uppercase;
+  }
+  .commentary-btn:hover { background: rgba(0,229,160,0.18); border-color: var(--accent); }
 
   /* SECTION LABELS */
   .section-label {
@@ -107,6 +114,7 @@
   .kpi-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--accent); opacity: 0.5; }
   .kpi-card.weekly::before { background: var(--accent2); opacity: 0.7; }
   .kpi-card.is-negative::before { background: var(--red); }
+  .kpi-card.is-warning::before { background: var(--orange); }
 
   .kpi-name { font-size: 9px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted2); margin-bottom: 12px; line-height: 1.4; min-height: 2.8em; display: flex; align-items: flex-start; }
   .kpi-main-value { font-family: 'DM Mono', monospace; font-size: 28px; font-weight: 500; color: var(--text); letter-spacing: -1px; line-height: 1; margin-bottom: 10px; }
@@ -116,6 +124,7 @@
   .kpi-change { font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 500; padding: 2px 7px; border-radius: 5px; }
   .kpi-change.positive { color: var(--accent); background: rgba(0,229,160,0.1); }
   .kpi-change.negative { color: var(--red); background: rgba(255,68,68,0.1); }
+  .kpi-change.warning { color: var(--orange); background: rgba(255,140,0,0.1); }
 
   /* ROLLING CARDS */
   .kpi-card.rolling { background: linear-gradient(135deg, var(--surface) 0%, rgba(0,145,255,0.05) 100%); }
@@ -180,7 +189,10 @@
         <div class="date-label" id="report-date">Loading...</div>
       </div>
       <div class="last-updated" id="last-updated">Fetching data...</div>
-      <button class="refresh-btn" onclick="hardRefresh()">↻ Force Refresh</button>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <button class="refresh-btn" onclick="hardRefresh()">↻ Force Refresh</button>
+        <button class="commentary-btn" onclick="openCommentaryPrompt()" title="Generate performance commentary in Claude">✦ Generate Commentary</button>
+      </div>
     </div>
   </div>
 
@@ -199,7 +211,7 @@
   </div>
 
   <div class="kpi-section" id="notes-section" style="display:none">
-    <div class="section-label kpi-heading mt-32">Performance Notes</div>
+    <div class="section-label kpi-heading mt-32" id="notes-heading">Performance Notes</div>
     <ul id="notes-list" style="
       list-style: none; padding: 0; margin: 0 0 8px 0;
       display: flex; flex-direction: column; gap: 10px;
@@ -474,7 +486,7 @@ function formatVal(val, name) {
   if (nameLower.includes('revenue') || nameLower.includes('transaction') || nameLower.includes('value')) {
     return '$' + Math.round(n).toLocaleString('en-US');
   }
-  if (nameLower.includes('share')) {
+  if (nameLower.includes('share') || nameLower.includes('open rate')) {
     // Raw decimal like 0.407 → multiply to get percentage
     if (n > 0 && n < 1) n = n * 100;
     return n.toFixed(2) + '%';
@@ -485,15 +497,26 @@ function formatVal(val, name) {
 function formatChange(val) {
   const raw = String(val).trim();
   if (!raw) return { text: '—', cls: 'positive' };
+
+  // Classify a numeric % value into positive / warning / negative
+  function classify(n) {
+    if (n >= 0) return 'positive';
+    if (n >= -0.05) return 'warning';   // 0 to -5%
+    return 'negative';                   // worse than -5%
+  }
+
   // Handle pre-formatted strings like "(2.42)%" or "+0.45%"
   if (raw.startsWith('(') && raw.endsWith(')%')) {
-    return { text: '▼ ' + raw.replace('(','').replace(')%','') + '%', cls: 'negative' };
+    const n = -parseFloat(raw.replace(/[()%]/g,'')) / 100;
+    return { text: '▼ ' + raw.replace('(','').replace(')%','') + '%', cls: classify(n) };
   }
   if (raw.startsWith('(') || (raw.startsWith('-') && raw.endsWith('%'))) {
-    return { text: '▼ ' + raw.replace(/[()%+-]/g,'') + '%', cls: 'negative' };
+    const n = parseFloat(raw.replace(/[()%]/g,'')) / 100;
+    return { text: '▼ ' + raw.replace(/[()%+-]/g,'') + '%', cls: classify(n) };
   }
   if (raw.endsWith('%')) {
-    return { text: '▲ ' + raw.replace('+',''), cls: 'positive' };
+    const n = parseFloat(raw.replace(/[+%]/g,'')) / 100;
+    return { text: '▲ ' + raw.replace('+',''), cls: classify(n) };
   }
   // Raw decimal like -0.0096 or 0.0568 from Apps Script
   const n = parseFloat(raw);
@@ -501,7 +524,7 @@ function formatChange(val) {
     const pct = (n * 100).toFixed(2) + '%';
     return n >= 0
       ? { text: '▲ ' + pct, cls: 'positive' }
-      : { text: '▼ ' + pct.replace('-',''), cls: 'negative' };
+      : { text: '▼ ' + pct.replace('-',''), cls: classify(n) };
   }
   return { text: raw, cls: 'positive' };
 }
@@ -510,7 +533,7 @@ function formatChange(val) {
 const DAILY_METRICS = [
   { name: 'Daily Active Users',        today: 'B12', avg: 'C12', chg: 'D12' },
   { name: 'Unique MRs / Searches',     today: 'B13', avg: 'C13', chg: 'D13' },
-  { name: 'Opens',                     today: 'B14', avg: 'C14', chg: 'D14' },
+  { name: 'Open Rate',                    today: 'B14', avg: 'C14', chg: 'D14' },
   { name: 'Total Product Clicks',      today: 'B15', avg: 'C15', chg: 'D15' },
   { name: 'Affiliate Partner Clicks',  today: 'B16', avg: 'C16', chg: 'D16' },
   { name: 'Affiliate Partner Share',   today: 'B17', avg: 'C17', chg: 'D17' },
@@ -521,7 +544,7 @@ const DAILY_METRICS = [
 const ROLLING_METRICS = [
   { name: 'Daily Active Users',        cur: 'B24', prior: 'C24', chg: 'D24' },
   { name: 'Unique MRs / Searches',     cur: 'B25', prior: 'C25', chg: 'D25' },
-  { name: 'Opens',                     cur: 'B26', prior: 'C26', chg: 'D26' },
+  { name: 'Open Rate',                    cur: 'B26', prior: 'C26', chg: 'D26' },
   { name: 'Total Product Clicks',      cur: 'B27', prior: 'C27', chg: 'D27' },
   { name: 'Affiliate Partner Clicks',  cur: 'B28', prior: 'C28', chg: 'D28' },
   { name: 'Affiliate Partner Share',   cur: 'B29', prior: 'C29', chg: 'D29' },
@@ -532,7 +555,7 @@ const ROLLING_METRICS = [
 const ROLLING_30_METRICS = [
   { name: 'Daily Active Users',        cur: 'G24', prior: 'H24', chg: 'I24' },
   { name: 'Unique MRs / Searches',     cur: 'G25', prior: 'H25', chg: 'I25' },
-  { name: 'Opens',                     cur: 'G26', prior: 'H26', chg: 'I26' },
+  { name: 'Open Rate',                    cur: 'G26', prior: 'H26', chg: 'I26' },
   { name: 'Total Product Clicks',      cur: 'G27', prior: 'H27', chg: 'I27' },
   { name: 'Affiliate Partner Clicks',  cur: 'G28', prior: 'H28', chg: 'I28' },
   { name: 'Affiliate Partner Share',   cur: 'G29', prior: 'H29', chg: 'I29' },
@@ -548,9 +571,9 @@ function renderDailyKPIs(grid) {
     const avg   = getCell(grid, m.avg);
     const chg   = getCell(grid, m.chg);
     const { text: chgText, cls: chgCls } = formatChange(chg);
-    const isNeg = chgCls === 'negative';
+    const cardCls = chgCls === 'negative' ? 'is-negative' : chgCls === 'warning' ? 'is-warning' : '';
     container.innerHTML += `
-      <div class="kpi-card ${isNeg ? 'is-negative' : ''}">
+      <div class="kpi-card ${cardCls}">
         <div class="kpi-name">${m.name}</div>
         <div class="kpi-main-value">${formatVal(today, m.name)}</div>
         <div class="kpi-comparison">
@@ -572,7 +595,7 @@ function renderRollingKPIs(grid) {
     const chg   = getCell(grid, m.chg);
     const { text: chgText, cls: chgCls } = formatChange(chg);
     container.innerHTML += `
-      <div class="kpi-card rolling ${chgCls === 'negative' ? 'is-negative' : ''}">
+      <div class="kpi-card rolling ${chgCls === 'negative' ? 'is-negative' : chgCls === 'warning' ? 'is-warning' : ''}">
         <div class="kpi-name">${m.name}</div>
         <div class="kpi-main-value">${formatVal(cur, m.name)}</div>
         <div class="kpi-comparison">
@@ -594,7 +617,7 @@ function renderRolling30KPIs(grid) {
     const chg  = getCell(grid, m.chg);
     const { text: chgText, cls: chgCls } = formatChange(chg);
     container.innerHTML += `
-      <div class="kpi-card rolling ${chgCls === 'negative' ? 'is-negative' : ''}">
+      <div class="kpi-card rolling ${chgCls === 'negative' ? 'is-negative' : chgCls === 'warning' ? 'is-warning' : ''}">
         <div class="kpi-name">${m.name}</div>
         <div class="kpi-main-value">${formatVal(cur, m.name)}</div>
         <div class="kpi-comparison">
@@ -611,11 +634,13 @@ function renderNotes(grid) {
   const notes = noteCells.map(ref => (getCell(grid, ref) || '').trim()).filter(n => n !== '');
   const section = document.getElementById('notes-section');
   const list = document.getElementById('notes-list');
+  const headingEl = document.getElementById('notes-heading');
   list.innerHTML = '';
   if (notes.length === 0) {
     section.style.display = 'none';
     return;
   }
+  if (headingEl) headingEl.textContent = 'Performance Notes';
   section.style.display = 'block';
   notes.forEach(note => {
     list.innerHTML += `
@@ -874,6 +899,7 @@ async function loadData() {
     document.getElementById('report-date').textContent = dateVal || 'Daily KPI Tracker';
 
 
+    window._lastGrid = grid;
     renderDailyKPIs(grid);
     renderRollingKPIs(grid);
     renderRolling30KPIs(grid);
@@ -937,7 +963,7 @@ function buildPercentLine(id, rangeData) {
       x: { ...lineOpts().scales.x, ticks: monthlyXTicks(labels) },
       y: {
         ...lineOpts().scales.y,
-        ticks: { font: { size: 10 }, callback: v => v.toFixed(1) + '%' }
+        ticks: { font: { size: 10 }, callback: v => (v * 100).toFixed(1) + '%' }
       }
     }
   });
@@ -946,9 +972,9 @@ function buildPercentLine(id, rangeData) {
 // ─── DUAL Y-AXIS LINE (when two series have very different scales) ─────────────
 function buildDualAxisLine(id, rangeData) {
   const { labels, rows } = extractRange(rangeData);
-  // Determine if values are percentages (0-100 range)
-  const isPercent = rows.length > 0 && rows[0].data.some(v => v > 0 && v <= 100 && String(v).includes('.'));
-  const fmtY = v => isPercent ? v.toFixed(1) + '%' : (v >= 1000 ? (v/1000).toFixed(0) + 'k' : v);
+  // Determine if values are decimal fractions representing percentages (e.g. 0.364 = 36.4%)
+  const isPercent = rows.length > 0 && rows[0].data.some(v => v > 0 && v < 1);
+  const fmtY = v => isPercent ? (v * 100).toFixed(1) + '%' : (v >= 1000 ? (v/1000).toFixed(0) + 'k' : v);
   const datasets = rows.map((r, i) => ({
     label: r.name,
     data: r.data,
@@ -1008,6 +1034,61 @@ function buildMonthlyValueLine(id, rangeData) {
 
 // Track which proxy worked
 let lastProxyUsed = 'none';
+
+function openCommentaryPrompt() {
+  if (!window._lastGrid) {
+    alert('Dashboard data not yet loaded — please wait for the data to finish loading.');
+    return;
+  }
+  const grid = window._lastGrid;
+  const reportDate = getCell(grid, 'B8') || '';
+
+  // Build daily section
+  const dailyLines = DAILY_METRICS.map(m =>
+    `  ${m.name}: ${getCell(grid, m.today)} (4wk avg: ${getCell(grid, m.avg)}, change: ${getCell(grid, m.chg)})`
+  ).join('\n');
+
+  // Build rolling 7 day section
+  const r7cur  = getCell(grid, 'B23') || 'Current';
+  const r7prior = getCell(grid, 'C23') || 'Prior';
+  const rolling7Lines = ROLLING_METRICS.map(m =>
+    `  ${m.name}: ${getCell(grid, m.cur)} vs ${getCell(grid, m.prior)} (change: ${getCell(grid, m.chg)})`
+  ).join('\n');
+
+  // Build rolling 30 day section
+  const r30cur  = getCell(grid, 'G23') || 'Current';
+  const r30prior = getCell(grid, 'H23') || 'Prior';
+  const rolling30Lines = ROLLING_30_METRICS.map(m =>
+    `  ${m.name}: ${getCell(grid, m.cur)} vs ${getCell(grid, m.prior)} (change: ${getCell(grid, m.chg)})`
+  ).join('\n');
+
+  const prompt = `You are a data analyst writing plain, factual performance commentary for the Zyft browser extension KPI dashboard. Write 6-8 bullet points. Each bullet is one sentence — lead with the number, then the plain implication. Use simple, everyday language. Avoid superlatives, hyperbole, and dramatic phrasing. State what the data shows, nothing more.
+
+When interpreting performance changes, apply this tonal guidance:
+- Positive movements: note as encouraging or strong performance
+- 0% to -5% decline: treat as normal fluctuation, use neutral language such as "broadly stable", "within normal range", or "minor softness"
+- Greater than -5% decline: treat as more significant, use language that reflects this such as "notable decline", "meaningful drop", or "warrants attention"
+
+Where the data suggests growth or performance improvement opportunities, call these out specifically. For example: channels or platforms that are growing faster than others, metrics where performance is above average and could be built on, areas where a small improvement would have an outsized impact, or trends that suggest an emerging opportunity worth capitalising on.
+
+When relevant, acknowledge known seasonal patterns in online shopping activity — December is typically the peak month driven by Christmas gifting, followed by a natural post-Christmas pullback in January and February. October and November see a build-up driven by Black Friday and pre-Christmas shopping. Quieter periods are typically mid-year (June-August). Where current performance is consistent with these seasonal norms, note this as context rather than a concern. Where performance diverges from expected seasonal patterns, call this out specifically.
+
+Report date: ${reportDate}
+
+DAILY PERFORMANCE (today vs 4-week average):
+${dailyLines}
+
+ROLLING 7 DAYS (${r7cur} vs ${r7prior}):
+${rolling7Lines}
+
+ROLLING 30 DAYS (${r30cur} vs ${r30prior}):
+${rolling30Lines}
+
+Write the bullet points ready to paste into a dashboard notes field. Start each bullet with a • character. No headers, no markdown, just the bullets.`;
+
+  const url = 'https://claude.ai/new?q=' + encodeURIComponent(prompt);
+  window.open(url, '_blank');
+}
 
 function hardRefresh() {
   // Clear any cached state and force reload
